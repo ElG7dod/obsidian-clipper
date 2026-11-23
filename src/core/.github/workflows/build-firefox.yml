@@ -1,0 +1,24 @@
+name: Build Firefox Clipper
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Zip Firefox Extension
+        run: |
+          cd dist_firefox
+          zip -r ../obsidian-clipper-firefox.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-clipper-firefox
+          path: obsidian-clipper-firefox.zip

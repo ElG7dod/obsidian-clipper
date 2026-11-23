@@ -4,6 +4,7 @@ import { detectBrowser } from './browser-detection';
 export interface SaveFileOptions {
 	content: string;
 	fileName: string;
+	path?: string;
 	mimeType?: string;
 	tabId?: number;
 	onError?: (error: Error) => void;
@@ -16,24 +17,41 @@ export function base64EncodeUnicode(str: string): string {
 	return btoa(utf8Bytes);
 }
 
+function sanitizeDownloadSegment(segment: string): string {
+	return segment
+		.replace(/[\\/:*?"<>|]/g, '_')
+		.replace(/[\x00-\x1F\x7F]/g, '')
+		.replace(/^[. ]+|[. ]+$/g, '');
+}
+
 export async function saveFile({
 	content,
 	fileName,
+	path = '',
 	mimeType = 'text/markdown',
 	tabId,
 	onError
 }: SaveFileOptions): Promise<void> {
 	try {
-		if (mimeType === 'text/markdown' && !fileName.toLowerCase().endsWith('.md')) {
-			fileName = `${fileName}.md`;
+		let cleanFileName = sanitizeDownloadSegment(fileName) || 'untitled';
+		if (mimeType === 'text/markdown' && !cleanFileName.toLowerCase().endsWith('.md')) {
+			cleanFileName = `${cleanFileName}.md`;
 		}
+
+		const cleanFolder = path
+			.split(/[\\/]/)
+			.map(sanitizeDownloadSegment)
+			.filter(seg => seg.length > 0 && seg !== '.' && seg !== '..')
+			.join('/');
+
+		const downloadPath = cleanFolder ? `${cleanFolder}/${cleanFileName}` : cleanFileName;
 
 		const browserType = await detectBrowser();
 		const isSafari = ['ios', 'mobile-ios', 'ipad-os', 'safari', 'mobile-safari'].includes(browserType);
 		
 		if (isSafari) {
 			const blob = new Blob([content], { type: 'application/json' });
-			const file = new File([blob], fileName, { type: 'application/json' });
+			const file = new File([blob], cleanFileName, { type: 'application/json' });
 			const dataUri = `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`;
 
 			// Use share API if there is no tab ID, e.g. in settings pages
@@ -42,7 +60,7 @@ export async function saveFile({
 					try {
 						await navigator.share({
 							files: [file],
-							text: fileName
+							text: cleanFileName
 						});
 					} catch (error) {
 						console.error('Error sharing:', error);
@@ -66,14 +84,27 @@ export async function saveFile({
 					a.click();
 					document.body.removeChild(a);
 				},
-				args: [fileName, dataUri]
+				args: [cleanFileName, dataUri]
 			});
+		} else if (browser.downloads?.download) {
+			const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+			const url = URL.createObjectURL(blob);
+
+			await browser.downloads.download({
+				url,
+				filename: downloadPath,
+				saveAs: false,
+				conflictAction: 'uniquify'
+			});
+
+			// Give Firefox time to finish reading the Blob before revoking
+			setTimeout(() => URL.revokeObjectURL(url), 10000);
 		} else {
 			const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = fileName;
+			a.download = cleanFileName;
 			document.body.appendChild(a);
 			a.click();
 			document.body.removeChild(a);
@@ -85,4 +116,4 @@ export async function saveFile({
 			onError(error as Error);
 		}
 	}
-} 
+}

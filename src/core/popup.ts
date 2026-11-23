@@ -1268,6 +1268,7 @@ async function handleSaveToDownloads() {
 		await saveFile({
 			content: fileContent,
 			fileName,
+			path,
 			mimeType: 'text/markdown',
 			tabId: currentTabId,
 			onError: (error) => showError('failedToSaveFile')
